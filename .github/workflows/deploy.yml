@@ -2,45 +2,31 @@ name: CI/CD Pipeline for Robot Shop Microservices
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  build-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build & Push Docker Images for Each Service
-        run: |
-          SERVICES=("web" "user" "cart" "catalogue" "ratings" "shipping" "payment" "dispatch")
-          for SERVICE in "${SERVICES[@]}"; do
-            echo "Building and pushing image for $SERVICE..."
-            docker build -t ${{ secrets.DOCKER_USERNAME }}/$SERVICE:latest ./src/$SERVICE
-            docker push ${{ secrets.DOCKER_USERNAME }}/$SERVICE:latest
-          done
-
-      - name: Set up Kubectl
-        uses: azure/setup-kubectl@v4
+      - name: Set Up Kubectl
+        uses: azure/setup-kubectl@v3
 
       - name: Configure Kubeconfig
         run: |
-          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > kubeconfig
+          export KUBECONFIG=kubeconfig
+          kubectl config view
 
-      - name: Deploy/Upgrade Helm Chart
+      - name: Set Up Helm
+        uses: azure/setup-helm@v4.1.0
+
+      - name: Helm Deploy
         run: |
-          helm upgrade --install robot-shop ./K8s/helm \
-            --namespace robot-shop --create-namespace \
-            --set global.imageRegistry=${{ secrets.DOCKER_USERNAME }}
+          helm upgrade --install robot-shop ./K8s/helm -n robot-shop --create-namespace
+          kubectl rollout status deployment/web -n robot-shop
